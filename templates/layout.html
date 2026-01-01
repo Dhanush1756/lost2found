@@ -10,6 +10,10 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap"
         rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
@@ -103,7 +107,7 @@
         {% if messages %}
         {% for message in messages %}
         <div
-            class="bg-white/90 backdrop-blur-md border-l-4 border-[#00509E] text-[#00509E] p-4 rounded-xl shadow-2xl animate-in slide-in-from-right-10 pointer-events-auto flex items-center gap-3">
+            class="flash-message bg-white/90 backdrop-blur-md border-l-4 border-[#00509E] text-[#00509E] p-4 rounded-xl shadow-2xl animate-in slide-in-from-right-10 pointer-events-auto flex items-center gap-3">
             <i data-lucide="info" class="w-5 h-5 text-[#00509E]"></i>
             <span class="font-bold text-sm">{{ message }}</span>
         </div>
@@ -130,6 +134,24 @@
     </footer>
 
     <script>lucide.createIcons();</script>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const messages = document.querySelectorAll('.flash-message');
+            if (messages.length > 0) {
+                setTimeout(function () {
+                    messages.forEach(function (msg) {
+                        msg.style.transition = "opacity 0.5s ease, transform 0.5s ease";
+                        msg.style.opacity = "0";
+                        msg.style.transform = "translateX(20px)"; // Slide slightly right
+                        setTimeout(function () {
+                            msg.remove();
+                        }, 500); // Wait for fade out to finish
+                    });
+                }, 3000); // 3 seconds delay
+            }
+        });
+    </script>
 </body>
 
 </html>

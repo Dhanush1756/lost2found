@@ -21,26 +21,27 @@
     <div class="grid md:grid-cols-2 gap-8">
         {% for match in matches %}
         <div
-            class="glass-card p-6 rounded-[2.5rem] shadow-2xl shadow-[#00509E]/5 border border-white/60 hover:border-[#00509E]/30 transition-all duration-500 group">
+            class="glass-card p-6 rounded-[2.5rem] shadow-2xl shadow-[#00509E]/5 border border-white/60 hover:border-[#00509E]/30 transition-all duration-500 group relative overflow-hidden">
 
             <div class="flex justify-between items-center mb-5">
                 <div class="flex items-center gap-2">
                     <div class="w-2 h-2 rounded-full bg-[#78BE20] animate-ping"></div>
                     <span class="text-[#78BE20] text-xs font-black uppercase tracking-[0.15em]">
-                        {{ match.confidence }}% Probability Match
+                        {{ match.match_score }}% Neural Sync
                     </span>
                 </div>
-                <span class="text-slate-400 text-[10px] font-black uppercase">{{ match.item.date_found }}</span>
+                <span class="text-slate-400 text-[10px] font-black uppercase tracking-tighter">{{ match.date_found
+                    }}</span>
             </div>
 
             <div
                 class="relative group/img overflow-hidden rounded-[1.5rem] mb-6 aspect-video bg-slate-100 border border-slate-100">
-                {% if match.item.image_path %}
-                <img src="{{ url_for('uploaded_file', filename=match.item.image_path) }}"
+                {% if match.image_path %}
+                <img src="{{ url_for('uploaded_file', filename=match.image_path) }}"
                     class="w-full h-full object-cover group-hover/img:scale-105 transition duration-700">
 
                 <div class="absolute inset-0 bg-[#00509E]/40 opacity-0 group-hover/img:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-[2px] cursor-pointer"
-                    onclick="openModal('{{ url_for('uploaded_file', filename=match.item.image_path) }}')">
+                    onclick="openModal('{{ url_for('uploaded_file', filename=match.image_path) }}')">
                     <button
                         class="bg-white text-[#00509E] px-5 py-2.5 rounded-xl font-black text-xs shadow-2xl transform translate-y-4 group-hover/img:translate-y-0 transition-all duration-300">
                         <i data-lucide="maximize" class="inline w-3 h-3 mr-1"></i> Full Inspection
@@ -55,14 +56,30 @@
             </div>
 
             <div class="mb-6">
-                <h3 class="text-2xl font-black text-slate-800 tracking-tight">{{ match.item.item_name }}</h3>
-                <div class="flex items-center gap-2 text-slate-400 font-bold text-sm mt-1">
-                    <i data-lucide="map-pin" class="w-4 h-4 text-[#78BE20]"></i>
-                    {{ match.item.location_found }}
+                <div class="flex justify-between items-start">
+                    <h3 class="text-2xl font-black text-slate-800 tracking-tight">{{ match.item_name }}</h3>
+                    <span
+                        class="bg-slate-100 text-slate-500 text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-tighter">
+                        {{ match.category }}
+                    </span>
+                </div>
+
+                <div class="flex flex-col gap-1 mt-2">
+                    <div class="flex items-center gap-2 text-slate-400 font-bold text-sm">
+                        <i data-lucide="map-pin" class="w-4 h-4 text-[#78BE20]"></i>
+                        {{ match.location_found }}
+                    </div>
+                    {% if match.distance_meters %}
+                    <div
+                        class="text-[10px] font-black text-[#78BE20] uppercase tracking-widest flex items-center gap-1.5 ml-1">
+                        <i data-lucide="navigation-2" class="w-3 h-3"></i>
+                        Detected {{ match.distance_meters }}m from your report
+                    </div>
+                    {% endif %}
                 </div>
             </div>
 
-            <form action="{{ url_for('claim', fid=match.item.id, lid=lost_id) }}" method="POST"
+            <form action="{{ url_for('claim', fid=match.id, lid=lost_id) }}" method="POST"
                 class="pt-6 border-t border-slate-100/50">
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Ownership
                     Evidence</label>

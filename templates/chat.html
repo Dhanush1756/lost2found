@@ -1,0 +1,97 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="max-w-3xl mx-auto py-10 px-6 relative z-10">
+
+    <a href="/dashboard"
+        class="inline-flex items-center gap-2 text-slate-400 hover:text-[#00509E] font-bold mb-6 transition-colors group text-sm">
+        <div
+            class="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
+            <i data-lucide="arrow-left" class="w-4 h-4"></i>
+        </div>
+        Back to Dashboard
+    </a>
+
+    <div class="glass-card p-6 rounded-t-[2.5rem] border border-white/60 bg-white/20 flex items-center justify-between">
+        <div class="flex items-center gap-4">
+            <div
+                class="w-12 h-12 bg-[#00509E] rounded-2xl flex items-center justify-center shadow-lg shadow-[#00509E]/20">
+                <i data-lucide="message-square" class="text-white w-6 h-6"></i>
+            </div>
+            <div>
+                <h2 class="text-xl font-black text-slate-900 leading-tight">
+                    {% if is_finder %} Chatting with Owner {% else %} Chatting with Finder {% endif %}
+                </h2>
+                <div class="flex items-center gap-2 mt-1">
+                    <span class="relative flex h-2 w-2">
+                        <span
+                            class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                        Secure Connection Active
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex gap-2">
+            <button onclick="location.reload()"
+                class="p-3 bg-white hover:bg-slate-50 rounded-xl text-slate-500 hover:text-[#00509E] transition-all shadow-sm">
+                <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+            </button>
+
+            <a href="/mark_returned/{{ claim.id }}"
+                onclick="return confirm('Confirm item exchange? This will close the claim.')"
+                class="px-4 py-3 bg-[#78BE20] hover:bg-[#66a31b] text-white rounded-xl font-bold text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-[#78BE20]/20 transition-all">
+                <i data-lucide="check-circle" class="w-4 h-4"></i> Complete Exchange
+            </a>
+        </div>
+    </div>
+
+    <div class="bg-slate-50/50 border-x border-white/60 p-6 h-[500px] overflow-y-auto flex flex-col gap-4 backdrop-blur-sm"
+        id="chatBox">
+        <div class="text-center my-4">
+            <span
+                class="bg-slate-200/50 text-slate-400 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
+                Session Started
+            </span>
+        </div>
+
+        {% for msg in messages %}
+        <div class="flex {% if msg.sender_email == session['user'] %} justify-end {% else %} justify-start {% endif %}">
+            <div class="max-w-[70%]">
+                <div class="p-4 text-sm font-bold shadow-sm 
+                    {% if msg.sender_email == session['user'] %} 
+                        bg-[#00509E] text-white rounded-2xl rounded-tr-sm
+                    {% else %}
+                        bg-white text-slate-700 rounded-2xl rounded-tl-sm border border-slate-100
+                    {% endif %}">
+                    {{ msg.message_text }}
+                </div>
+                <span class="text-[9px] font-black text-slate-400 mt-1 uppercase tracking-wider px-1">
+                    {{ msg.timestamp.strftime('%H:%M') }}
+                </span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="glass-card p-4 rounded-b-[2.5rem] border border-white/60 bg-white shadow-xl relative z-20">
+        <form action="/chat/{{ claim.id }}" method="POST" class="flex gap-3">
+            <input type="text" name="message" placeholder="Type a message..." required autocomplete="off" autofocus
+                class="flex-1 p-4 bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl font-bold text-slate-700 outline-none border-2 border-transparent focus:border-[#00509E]/10 transition-all text-sm">
+
+            <button type="submit"
+                class="w-14 bg-[#00509E] text-white rounded-xl flex items-center justify-center hover:bg-[#003d7a] transition-all shadow-lg">
+                <i data-lucide="send" class="w-5 h-5"></i>
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+    // Auto-scroll to bottom
+    const chatBox = document.getElementById('chatBox');
+    chatBox.scrollTop = chatBox.scrollHeight;
+</script>
+{% endblock %}
