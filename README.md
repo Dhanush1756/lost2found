@@ -102,17 +102,6 @@ The system relies on the following core tables:
 - **messages**  
   Facilitates communication related to specific claims.
 
----
-
-## 📌 Final Steps to Push to GitHub
-
-After saving this content into your `README.md` file, run the following commands:
-
-```bash
-git add .
-git commit -m "Added README for Lost2Found"
-git push origin main
-```
 
 ---
 
