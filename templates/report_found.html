@@ -18,12 +18,18 @@
             Back to Dashboard
         </a>
         <div class="text-right hidden md:block">
-            <h1 class="text-2xl font-black text-slate-900 tracking-tight">Report Found Item</h1>
-            <p class="text-slate-500 font-bold text-xs">Help return this item to its owner</p>
+            <h1 class="text-2xl font-black text-slate-900 tracking-tight">
+                {{ 'Edit Found Item' if is_edit else 'Report Found Item' }}
+            </h1>
+            <p class="text-slate-500 font-bold text-xs">
+                {{ 'Update details for the item you found' if is_edit else 'Help return this item to its owner' }}
+            </p>
         </div>
     </div>
 
-    <form action="/report_found" method="POST" enctype="multipart/form-data" onsubmit="preventDoubleSubmit(this)">
+    <form action="{{ url_for('edit_found_item', item_id=item.id) if is_edit else url_for('report_found') }}"
+        method="POST" enctype="multipart/form-data" onsubmit="preventDoubleSubmit(this)">
+
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
 
             <div class="lg:col-span-5 space-y-4">
@@ -36,17 +42,25 @@
                     </div>
 
                     <div class="relative group flex-grow">
-                        <input type="file" name="image" id="imageInput" accept="image/*" required class="hidden"
-                            onchange="previewImage(event)">
+                        <input type="file" name="image" id="imageInput" accept="image/*" class="hidden" {{ '' if is_edit
+                            else 'required' }} onchange="previewImage(event)">
+
                         <label for="imageInput"
                             class="block w-full h-full min-h-[300px] border-2 border-dashed border-slate-300 rounded-3xl flex flex-col items-center justify-center cursor-pointer hover:border-[#78BE20] hover:bg-[#78BE20]/5 transition-all bg-slate-50/50">
-                            <img id="preview" class="hidden w-full h-full object-cover rounded-3xl">
-                            <div id="upload-placeholder" class="text-center p-6">
+
+                            <img id="preview"
+                                src="{{ url_for('uploaded_file', filename=item.image_path) if item and item.image_path else '' }}"
+                                class="{{ 'hidden' if not (item and item.image_path) else '' }} w-full h-full object-cover rounded-3xl">
+
+                            <div id="upload-placeholder"
+                                class="{{ 'hidden' if item and item.image_path else '' }} text-center p-6">
                                 <div
                                     class="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mx-auto mb-4 group-hover:scale-110 transition-transform">
                                     <i data-lucide="upload-cloud" class="w-8 h-8 text-[#78BE20]"></i>
                                 </div>
-                                <span class="text-slate-400 font-bold text-sm block">Click to upload photo</span>
+                                <span class="text-slate-400 font-bold text-sm block">
+                                    {{ 'Click to change photo' if is_edit else 'Click to upload photo' }}
+                                </span>
                             </div>
                         </label>
                     </div>
@@ -77,8 +91,8 @@
                         <div class="space-y-1">
                             <label class="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Item
                                 Name</label>
-                            <input type="text" name="name" id="nameInput" placeholder="e.g. Black Leather Wallet"
-                                required
+                            <input type="text" name="item_name" id="nameInput" placeholder="e.g. Black Leather Wallet"
+                                required value="{{ item.item_name if item else '' }}"
                                 class="w-full p-3 bg-slate-50 rounded-xl border-none focus:ring-2 focus:ring-[#78BE20]/20 font-bold text-slate-700 text-sm">
                         </div>
                         <div class="space-y-1">
@@ -86,11 +100,16 @@
                                 class="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Category</label>
                             <select name="category"
                                 class="w-full p-3 bg-slate-50 rounded-xl border-none focus:ring-2 focus:ring-[#78BE20]/20 font-bold text-slate-700 text-sm">
-                                <option value="Electronics">Electronics</option>
-                                <option value="Documents">Documents</option>
-                                <option value="Accessories">Accessories</option>
-                                <option value="Clothing">Clothing</option>
-                                <option value="Other">Other</option>
+                                <option value="Electronics" {% if item and item.category=='Electronics' %}selected{%
+                                    endif %}>Electronics</option>
+                                <option value="Documents" {% if item and item.category=='Documents' %}selected{% endif
+                                    %}>Documents</option>
+                                <option value="Accessories" {% if item and item.category=='Accessories' %}selected{%
+                                    endif %}>Accessories</option>
+                                <option value="Clothing" {% if item and item.category=='Clothing' %}selected{% endif %}>
+                                    Clothing</option>
+                                <option value="Other" {% if item and item.category=='Other' %}selected{% endif %}>Other
+                                </option>
                             </select>
                         </div>
                     </div>
@@ -98,8 +117,16 @@
                     <div class="space-y-1 mb-4">
                         <label class="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Date
                             Found</label>
-                        <input type="date" name="date_found" required
+                        <input type="date" name="date_found" required value="{{ item.date_found if item else '' }}"
                             class="w-full p-3 bg-slate-50 rounded-xl border-none focus:ring-2 focus:ring-[#78BE20]/20 font-bold text-slate-700 text-sm">
+                    </div>
+
+                    <div class="space-y-1 mb-4">
+                        <label
+                            class="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Description</label>
+                        <textarea name="description" rows="3"
+                            placeholder="Describe condition, contents, or specific location details..."
+                            class="w-full p-3 bg-slate-50 rounded-xl border-none focus:ring-2 focus:ring-[#78BE20]/20 font-bold text-slate-700 text-sm resize-none">{{ item.description if item else '' }}</textarea>
                     </div>
 
                     <div class="space-y-2">
@@ -126,7 +153,8 @@
                             <i data-lucide="map-pin"
                                 class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"></i>
                             <input type="text" name="location" id="locationText"
-                                placeholder="Click map or use GPS button" readonly required
+                                value="{{ item.location if item else '' }}" placeholder="Click map or use GPS button"
+                                readonly required
                                 class="w-full p-3 pl-10 bg-slate-50 rounded-xl border-none font-bold text-slate-600 text-xs">
                         </div>
                         <input type="hidden" name="location_coords" id="location_coords">
@@ -134,7 +162,8 @@
 
                     <button type="submit" id="submitBtn"
                         class="w-full mt-6 py-4 bg-[#78BE20] hover:bg-[#66a31b] text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-lg shadow-[#78BE20]/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2">
-                        <i data-lucide="check-circle" class="w-5 h-5"></i> Register Found Item
+                        <i data-lucide="{{ 'save' if is_edit else 'check-circle' }}" class="w-5 h-5"></i>
+                        {{ 'Save Changes' if is_edit else 'Register Found Item' }}
                     </button>
                 </div>
             </div>

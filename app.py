@@ -108,25 +108,38 @@ def compare_images(img_path1, img_path2):
         return 0
 
 def calculate_similarity(lost_entry, found_item):
+    # Fix: Safely get location keys to prevent KeyError
+    found_loc = found_item.get('location_found') or found_item.get('location') or ''
+    lost_loc = lost_entry.get('location_lost') or lost_entry.get('location') or ''
+    
+    # Calculate Component Scores
     text_score = fuzz.token_set_ratio(lost_entry['item_name'], found_item['item_name'])
     cat_score = 100 if lost_entry['category'] == found_item['category'] else 0
-    loc_score = fuzz.partial_ratio(lost_entry['location_lost'], found_item['location_found'])
+    loc_score = fuzz.partial_ratio(lost_loc, found_loc)
+    
+    # Image Comparison (only if paths exist)
     img_score = 0
-    if lost_entry.get('image_path') and found_item['image_path']:
+    if lost_entry.get('image_path') and found_item.get('image_path'):
         p1 = os.path.join(app.config['UPLOAD_FOLDER'], lost_entry['image_path'])
         p2 = os.path.join(app.config['UPLOAD_FOLDER'], found_item['image_path'])
         if os.path.exists(p1) and os.path.exists(p2):
             img_score = compare_images(p1, p2)
     
+    # Weighted Total
     total_score = (text_score * 0.4) + (cat_score * 0.3) + (loc_score * 0.1) + (img_score * 0.2)
+    
+    # Re-weight if no image comparison was possible
     if img_score == 0:
         total_score = (text_score * 0.5) + (cat_score * 0.35) + (loc_score * 0.15)
+        
     return int(total_score)
 
 def find_matches_smart(lost_entry):
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM found_items WHERE status IN ('available', 'matched')")
+    
+    # --- FIX: Added 'pending' and 'potential_match' to this query ---
+    cursor.execute("SELECT * FROM found_items WHERE status IN ('available', 'matched', 'pending', 'potential_match')")
     found_pool = cursor.fetchall()
     conn.close()
     
@@ -137,13 +150,15 @@ def find_matches_smart(lost_entry):
         if distance <= 100: score += 15 
         elif distance <= 500: score += 10
         elif distance <= 1000: score += 5
+        
+        # Threshold > 45
         if score > 45:
             found['match_score'] = round(min(score, 100), 1)
             found['distance_meters'] = round(distance, 0) if distance != float('inf') else None
             matches.append(found)
+            
     matches.sort(key=lambda x: x['match_score'], reverse=True)
     return matches
-
 # --- AI FRAUD DETECTION ---
 def check_fraud_probability(user_email, item_name):
     fraud_points = 0
@@ -237,8 +252,9 @@ def logout():
     flash("Logged out.")
     return redirect(url_for('index'))
 
-# Inside app.py
-
+# ==========================================
+# 1. DASHBOARD ROUTE 
+# ==========================================
 @app.route('/dashboard')
 @is_logged_in
 def dashboard():
@@ -249,16 +265,28 @@ def dashboard():
     cursor.execute("SELECT id, email, name, reward_points FROM users WHERE email = %s", (session['user'],))
     current_user = cursor.fetchone()
 
-    # 2. Lost Items
+    # Handle Deleted/Missing Users (Safety Check)
+    if not current_user:
+        session.clear()
+        conn.close()
+        flash("Session expired. Please login again.", "warning")
+        return redirect(url_for('login'))
+
+    # 2. LOST ITEMS (Fixed JOIN to get Chat Button working)
+    # We LEFT JOIN 'claims' so we know if there is a claim_id and what the status is.
     cursor.execute("""
-        SELECT l.*, c.id as claim_id, c.admin_status as claim_admin_status
+        SELECT 
+            l.*, 
+            c.id as claim_id, 
+            c.admin_status as claim_admin_status 
         FROM lost_items l
-        LEFT JOIN claims c ON l.id = c.lost_item_id AND c.status != 'rejected'
-        WHERE l.user_email = %s ORDER BY l.date_lost DESC
+        LEFT JOIN claims c ON l.id = c.lost_item_id 
+        WHERE l.user_email = %s 
+        ORDER BY l.date_lost DESC
     """, (session['user'],))
     lost_items = cursor.fetchall()
     
-    # 3. Found Items
+    # 3. FOUND ITEMS
     cursor.execute("""
         SELECT f.*, c.id as claim_id, c.admin_status as claim_admin_status
         FROM found_items f
@@ -271,7 +299,7 @@ def dashboard():
     cursor.execute("SELECT * FROM neural_tags WHERE user_id = %s ORDER BY created_at DESC", (current_user['id'],))
     my_tags = cursor.fetchall()
 
-    # 5. Inbox Messages (With Read Status)
+    # 5. Inbox Messages
     try:
         cursor.execute("""
             SELECT m.*, t.item_name 
@@ -281,8 +309,6 @@ def dashboard():
             ORDER BY m.created_at DESC
         """, (current_user['id'],))
         inbox_messages = cursor.fetchall()
-        
-        # Calculate Unread Count
         unread_count = sum(1 for m in inbox_messages if m.get('is_read', 0) == 0)
     except:
         inbox_messages = []
@@ -299,7 +325,7 @@ def dashboard():
                            found_items=found_items, 
                            my_tags=my_tags,
                            inbox_messages=inbox_messages,
-                           unread_count=unread_count,  # <-- Passed to template
+                           unread_count=unread_count,
                            leaderboard=leaderboard,
                            user_points=current_user['reward_points'])
 
@@ -307,70 +333,129 @@ def dashboard():
 @is_logged_in
 def report_lost():
     if request.method == 'POST':
-        name = request.form['name']
-        category = request.form['category']
-        location = request.form['location']
-        coords = request.form.get('location_coords')
-        date = request.form['date']
+        # 1. Capture data from Form (Handling multiple possible HTML names)
+        item_name = request.form.get('name') or request.form.get('item_name')
+        category = request.form.get('category')
+        location_lost = request.form.get('location') or request.form.get('location_lost')
+        location_coords = request.form.get('location_coords')
+        date_lost = request.form.get('date') or request.form.get('date_lost')
         description = request.form.get('description', 'Reported via Neural Sync')
         
         filename = None
         if 'image' in request.files:
             file = request.files['image']
-            if file and allowed_file(file.filename):
+            if file and file.filename != '':
                 filename = f"lost_{secrets.token_hex(4)}_{secure_filename(file.filename)}"
                 file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
 
         conn = get_db()
         cursor = conn.cursor(dictionary=True)
-        query = """INSERT INTO lost_items (item_name, category, location_lost, location_coords, date_lost, user_email, description, status, image_path) 
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, 'searching', %s)"""
-        cursor.execute(query, (name, category, location, coords, date, session['user'], description, filename))
-        lost_id = cursor.lastrowid
-        conn.commit()
+        
+        try:
+            # 2. Insert into lost_items using your EXACT schema
+            query = """INSERT INTO lost_items 
+                       (item_name, category, location_lost, location_coords, date_lost, user_email, description, status, image_path) 
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, 'searching', %s)"""
+            cursor.execute(query, (item_name, category, location_lost, location_coords, date_lost, session['user'], description, filename))
+            lost_id = cursor.lastrowid
+            conn.commit()
 
-        lost_entry = {'item_name': name, 'category': category, 'location_lost': location, 'location_coords': coords, 'image_path': filename}
-        matches = find_matches_smart(lost_entry)
-        conn.close()
-        return render_template('matches.html', matches=matches, lost_id=lost_id)
+            # 3. NORMALIZATION FOR AI: Make sure keys match what the AI function expects
+            lost_entry_for_ai = {
+                'id': lost_id,
+                'item_name': item_name, 
+                'category': category, 
+                'location_lost': location_lost, # Used for DB matching logic
+                'location': location_lost,      # Duplicate as 'location' in case AI looks for that
+                'location_coords': location_coords, 
+                'image_path': filename
+            }
+            
+            # 4. Run AI Search
+            matches = find_matches_smart(lost_entry_for_ai)
+            
+            # 5. Update status if matches exist
+            if matches:
+                cursor.execute("UPDATE lost_items SET status = 'potential_match' WHERE id = %s", (lost_id,))
+                conn.commit()
+
+            conn.close()
+            return render_template('matches.html', matches=matches, lost_id=lost_id, is_verified=False)
+
+        except Exception as e:
+            print(f"DEBUG ERROR: {e}")
+            conn.close()
+            return "Internal Server Error during matching", 500
+        
     return render_template('report_lost.html')
-
+    
 @app.route('/report_found', methods=['GET', 'POST'])
 @is_logged_in
 def report_found():
     if request.method == 'POST':
-        # 1. Capture Form Data
-        name = request.form['name']
-        category = request.form['category']
-        location = request.form['location']
-        location_coords = request.form['location_coords'] # Captures the coordinates from the map
-        date_found = request.form['date_found']
-        image = request.files['image']
-
-        # 2. Handle Image Upload
+        item_name = request.form.get('name') or request.form.get('item_name')
+        category = request.form.get('category')
+        location = request.form.get('location')
+        location_coords = request.form.get('location_coords', '')
+        date_found = request.form.get('date') or request.form.get('date_found')
+        description = request.form.get('description', 'Found via App')
+        
+        image = request.files.get('image')
         filename = ""
-        if image:
-            filename = secure_filename(image.filename)
+        if image and image.filename != '':
+            filename = f"found_{secrets.token_hex(4)}_{secure_filename(image.filename)}"
             image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
 
-        # 3. Save to Database
-        # Note: We insert "Found via App" as description since the form doesn't have a description field
         conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO found_items 
-            (item_name, category, description, location, location_coords, date_found, finder_email, image_path, status) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'searching')
-        """, (name, category, "Found via App", location, location_coords, date_found, session['user'], filename))
+        cursor = conn.cursor(dictionary=True, buffered=True)
         
-        conn.commit()
-        conn.close()
+        try:
+            # 1. Save to found_items
+            cursor.execute("UPDATE users SET karma = karma + 10 WHERE email = %s", (session['user'],))
+            insert_query = """
+                INSERT INTO found_items 
+                (item_name, category, description, location, location_coords, date_found, finder_email, image_path, status) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'searching')
+            """
+            cursor.execute(insert_query, (item_name, category, description, location, location_coords, date_found, session['user'], filename))
+            new_found_id = cursor.lastrowid
+            conn.commit() 
 
-        flash("Item reported successfully! Thanks for helping.", "success")
+            # 2. AI SCAN: Compare this NEW FOUND item against all LOST items
+            cursor.execute("SELECT * FROM lost_items WHERE status IN ('searching', 'potential_match')")
+            all_lost_items = cursor.fetchall()
+            
+            # Normalize the current found item for the AI
+            current_found_for_ai = {
+                'id': new_found_id,
+                'item_name': item_name,
+                'category': category,
+                'location': location,
+                'image_path': filename
+            }
+
+            match_found_flag = False
+            for lost in all_lost_items:
+                # IMPORTANT: We ensure the lost item has 'location' for the AI even if DB says 'location_lost'
+                lost['location'] = lost.get('location_lost') 
+                
+                score = calculate_match_score(lost, current_found_for_ai)
+                
+                if score >= 50:
+                    cursor.execute("UPDATE lost_items SET status = 'potential_match' WHERE id = %s", (lost['id'],))
+                    cursor.execute("UPDATE found_items SET status = 'potential_match' WHERE id = %s", (new_found_id,))
+                    match_found_flag = True
+            
+            if match_found_flag:
+                conn.commit()
+
+        except Exception as e:
+            print(f"DEBUG MATCH ERROR: {e}")
+        
+        conn.close()
         return redirect(url_for('dashboard'))
         
-    return render_template('report_found.html')
-
+    return render_template('report_found.html')            
 @app.route('/claim/<int:fid>/<int:lid>', methods=['POST'])
 @is_logged_in
 def claim(fid, lid):
@@ -528,43 +613,141 @@ def mark_message_read(message_id):
     # Redirect back to dashboard with 'tab=alerts' parameter so it stays on the right tab
     return redirect(url_for('dashboard', tab='alerts'))
 
+# --- 1. IMPROVED MATCHING LOGIC (Fixes the "No Match" Issue) ---
+def calculate_match_score(lost, found):
+    # CRITICAL: Use 'location_lost' for the Lost Item 
+    # and 'location' for the Found Item (from the form data)
+    lost_loc = lost.get('location_lost', '')
+    found_loc = found.get('location', '') # This comes from the found item dictionary
+    
+    # 1. Text Similarity (Item Name)
+    text_score = fuzz.token_set_ratio(lost['item_name'], found['item_name'])
+    
+    # 2. Location Similarity
+    loc_score = fuzz.partial_ratio(lost_loc.lower(), found_loc.lower())
+    
+    # 3. Category Match
+    cat_score = 100 if lost['category'] == found['category'] else 0
+    
+    # Weighted Average
+    total = (text_score * 0.5) + (cat_score * 0.3) + (loc_score * 0.2)
+    return int(total)
+
+# --- 2. THE MISSING 'RESCAN' ROUTE ---
+@app.route('/rescan/<int:lost_id>')
+@is_logged_in
+def rescan(lost_id):
+    """
+    Manually triggers the AI Search for a specific Lost Item.
+    This is what runs when you click the 'Rescan' button.
+    """
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    # 1. Get the specific Lost Item
+    cursor.execute("SELECT * FROM lost_items WHERE id = %s AND user_email = %s", (lost_id, session['user']))
+    lost_item = cursor.fetchone()
+    
+    if not lost_item:
+        flash("Item not found or unauthorized.", "danger")
+        return redirect(url_for('dashboard'))
+
+    # 2. Get ALL Found items that are available
+    cursor.execute("SELECT * FROM found_items WHERE status IN ('searching', 'available')")
+    found_pool = cursor.fetchall()
+    conn.close()
+
+    # 3. Run the Matching Logic
+    matches = []
+    for found in found_pool:
+        score = calculate_match_score(lost_item, found)
+        
+        # LOWERED THRESHOLD TO 50 TO ENSURE YOU SEE RESULTS
+        if score >= 50: 
+            found['match_score'] = score
+            matches.append(found)
+    
+    # Sort best matches first
+    matches = sorted(matches, key=lambda x: x['match_score'], reverse=True)
+
+    # 4. Show the Results Page
+    if matches:
+        flash(f"Scan complete! Found {len(matches)} potential matches.", "success")
+        return render_template('matches.html', matches=matches, lost_id=lost_id)
+    else:
+        flash("Scan complete. No new matches found yet.", "warning")
+        return redirect(url_for('dashboard'))
+
+# --- 3. UPDATED BACKGROUND AUTO-SCAN (For Report Found) ---
+def run_background_auto_match(new_found_item):
+    """
+    Automatically checks matches when a FOUND item is uploaded.
+    Sends email if match > 60%.
+    """
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        # Get all active Lost items
+        cursor.execute("SELECT * FROM lost_items WHERE status = 'searching'")
+        lost_pool = cursor.fetchall()
+        
+        for lost in lost_pool:
+            score = calculate_match_score(lost, new_found_item)
+            
+            if score >= 60:
+                print(f"✅ MATCH DETECTED: {score}% for {lost['user_email']}")
+                try:
+                    msg = Message("🔍 Match Found!", recipients=[lost['user_email']])
+                    msg.body = f"Good news! A found item '{new_found_item['item_name']}' matches your lost report.\n\nLogin to Dashboard to view."
+                    mail.send(msg)
+                except Exception as e:
+                    print(f"Email failed: {e}")
+        conn.close()
+    except Exception as e:
+        print(f"Background Scan Error: {e}")
+
 # --- ADMIN PANEL ROUTES ---
 
 @app.route('/admin')
 def admin():
     # 1. Security Check
-    if 'user' not in session or session.get('user') != "ADMIN":
-        flash('Unauthorized access.', 'danger')
+    # Ensure this matches the string you set in session during login
+    if 'user' not in session or session.get('user') != "ADMIN": 
+        flash('Unauthorized access. Admin privileges required.', 'danger')
         return redirect(url_for('login'))
 
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
 
-    # ---------------------------------------------------------
-    # 2. Fetch Pending Claims (With Images for the Cards)
-    # ---------------------------------------------------------
-    # We join lost_items and found_items to get images and descriptions
+    # =========================================================
+    # 2. Fetch Pending Claims (Crucial for Verification)
+    # =========================================================
+    # This joins ALL three tables: Claims, Found Items, and Lost Items
+    # It ensures you see the 'Proof' text the user typed in matches.html
     cursor.execute("""
         SELECT 
             c.id as claim_id,
             c.user_email as claimant_email,
             c.proof_description,
+            c.created_at,
             c.status as risk_status,
             f.item_name as found_item,
             f.image_path as found_image,
-            l.image_path as lost_image
+            f.id as found_id,
+            l.item_name as lost_item,
+            l.image_path as lost_image,
+            l.id as lost_id
         FROM claims c
         JOIN found_items f ON c.found_item_id = f.id
         JOIN lost_items l ON c.lost_item_id = l.id
         WHERE c.admin_status = 'pending'
+        ORDER BY c.created_at ASC
     """)
     pending_claims = cursor.fetchall()
 
-    # ---------------------------------------------------------
-    # 3. Fetch Active Chats
-    # ---------------------------------------------------------
-    # FIX: Join 'found_items' to get the finder_email. 
-    # Removed 'c.finder_id' which caused the error.
+    # =========================================================
+    # 3. Fetch Active Chats (Ongoing Investigations)
+    # =========================================================
     cursor.execute("""
         SELECT 
             c.id as claim_id, 
@@ -574,13 +757,13 @@ def admin():
             c.user_email as claimant
         FROM claims c
         JOIN found_items f ON c.found_item_id = f.id
-        WHERE c.status != 'solved' AND c.status != 'rejected'
+        WHERE c.status NOT IN ('solved', 'rejected')
     """)
     active_chats = cursor.fetchall()
 
-    # ---------------------------------------------------------
+    # =========================================================
     # 4. Fetch Resolution Log (History)
-    # ---------------------------------------------------------
+    # =========================================================
     cursor.execute("""
         SELECT 
             c.id, 
@@ -592,18 +775,19 @@ def admin():
         JOIN found_items f ON c.found_item_id = f.id
         WHERE c.status = 'solved'
         ORDER BY c.solved_at DESC
+        LIMIT 50
     """)
     history = cursor.fetchall()
 
-    # ---------------------------------------------------------
-    # 5. Fetch Users
-    # ---------------------------------------------------------
+    # =========================================================
+    # 5. Fetch User Statistics
+    # =========================================================
     cursor.execute("SELECT id, name, email, is_blocked FROM users")
     users = cursor.fetchall()
 
-    # ---------------------------------------------------------
-    # 6. Graph Data (Last 7 Days)
-    # ---------------------------------------------------------
+    # =========================================================
+    # 6. Graph Data (Last 7 Days Activity)
+    # =========================================================
     cursor.execute("""
         SELECT DATE(solved_at) as date, COUNT(*) as count 
         FROM claims 
@@ -616,16 +800,45 @@ def admin():
     dates = [row['date'].strftime('%Y-%m-%d') for row in graph_data]
     counts = [row['count'] for row in graph_data]
 
+    # Stats Counters for Top Cards
+    stats = {
+        'users': len(users),
+        'pending': len(pending_claims),
+        'active': len(active_chats),
+        'solved': len(history)
+    }
+
+    # =========================================================
+    # 7. NEW: Karma Leaderboard (The missing piece)
+    # =========================================================
+    cursor.execute("""
+        SELECT name, email, reward_points 
+        FROM users 
+        ORDER BY reward_points DESC 
+        LIMIT 10
+    """)
+    leaderboard = cursor.fetchall()
+
+    # Stats Counters
+    stats = {
+        'users': len(users),
+        'pending': len(pending_claims),
+        'active': len(active_chats),
+        'solved': len(history)
+    }
+
+
     cursor.close()
     conn.close()
-
     return render_template('admin.html', 
-                         claims=pending_claims, 
-                         active_chats=active_chats,
-                         history=history,
-                         users=users,
-                         graph_dates=dates, 
-                         graph_counts=counts)
+                           claims=pending_claims, 
+                           active_chats=active_chats,
+                           history=history,
+                           users=users,
+                           stats=stats,
+                           graph_dates=dates, 
+                           graph_counts=counts,
+                           leaderboard=leaderboard)
 
 @app.route('/approve/<int:cid>', methods=['POST'])
 def approve(cid):
@@ -670,11 +883,35 @@ def check_matches(lost_id):
     cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM lost_items WHERE id = %s AND user_email = %s", (lost_id, session['user']))
     lost_item = cursor.fetchone()
-    conn.close()
-    if not lost_item: return redirect(url_for('dashboard'))
-    matches = find_matches_smart(lost_item)
-    return render_template('matches.html', matches=matches, lost_id=lost_id)
+    
+    if not lost_item: 
+        conn.close()
+        return redirect(url_for('dashboard'))
 
+    # 1. Run the AI Match (Now includes pending items)
+    matches = find_matches_smart(lost_item)
+
+    # 2. Check for existing claims to update UI status
+    for match in matches:
+        cursor.execute("""
+            SELECT admin_status, id as claim_id 
+            FROM claims 
+            WHERE lost_item_id = %s AND found_item_id = %s
+        """, (lost_id, match['id']))
+        claim = cursor.fetchone()
+        
+        # Inject status so matches.html knows what badge to show
+        if claim:
+            match['match_record_id'] = claim['claim_id'] # For the 'Chat' button link
+            if claim['admin_status'] == 'approved':
+                match['db_status'] = 'verified'
+            else:
+                match['db_status'] = claim['admin_status'] # e.g., 'pending'
+        else:
+            match['db_status'] = None
+
+    conn.close()
+    return render_template('matches.html', matches=matches, lost_id=lost_id)
 # --- NEW ROUTE: TOGGLE BLOCK ---
 @app.route('/toggle_block/<int:user_id>')
 def toggle_block(user_id):
@@ -697,8 +934,45 @@ def toggle_block(user_id):
     conn.close()
     return redirect(url_for('admin'))
 
+@app.route('/verify_match/<int:lost_id>/<int:found_id>', methods=['POST'])
+@is_logged_in
+def verify_match(lost_id, found_id):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # 1. Check if this claim already exists to prevent duplicates
+    cursor.execute("""
+        SELECT id FROM claims 
+        WHERE lost_item_id = %s AND found_item_id = %s
+    """, (lost_id, found_id))
+    existing = cursor.fetchone()
+
+    if existing:
+        flash("You have already submitted a request for this item.", "warning")
+        conn.close()
+        return redirect(url_for('dashboard'))
+
+    # 2. Insert into Claims Table
+    # NOTE: 'proof_description' is NOT NULL in your DB, so we provide a default value.
+    query = """
+        INSERT INTO claims 
+        (lost_item_id, found_item_id, user_email, proof_description, admin_status, status, created_at)
+        VALUES (%s, %s, %s, 'AI Match Verification Request', 'pending', 'investigating', NOW())
+    """
+    cursor.execute(query, (lost_id, found_id, session['user']))
+    
+    # 3. Update status of both items to prevent re-matching
+    cursor.execute("UPDATE lost_items SET status = 'pending' WHERE id = %s", (lost_id,))
+    cursor.execute("UPDATE found_items SET status = 'pending' WHERE id = %s", (found_id,))
+
+    conn.commit()
+    conn.close()
+
+    flash("Verification request sent to Admin! Check your dashboard for updates.", "success")
+    return redirect(url_for('dashboard'))
+
 # ==========================================
-# FEATURE 1: NEURAL TAGS (QR CODES)
+# NEURAL TAGS (QR CODES)
 # ==========================================
 
 @app.route('/create_tag', methods=['POST'])
@@ -756,6 +1030,283 @@ def scan_tag(unique_code):
         
     return render_template('tag_found.html', tag=tag)
 
+# ==========================================
+# 1. DELETE LOST ITEM (Fixed Session Check)
+# ==========================================
+@app.route('/delete_item/<int:item_id>', methods=['GET', 'POST'])
+def delete_item(item_id):
+    # FIX 1: Check for 'user' (email), NOT 'user_id'
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    # FIX 2: Check ownership using 'user_email'
+    cursor.execute("SELECT * FROM lost_items WHERE id = %s", (item_id,))
+    item = cursor.fetchone()
+    
+    if item and item['user_email'] == session['user']:
+        cursor.execute("DELETE FROM lost_items WHERE id = %s", (item_id,))
+        conn.commit()
+        
+        # Delete image file
+        if item['image_path']:
+            try:
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], item['image_path'])
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception:
+                pass
+        flash('Item deleted successfully.', 'success')
+    else:
+        flash('Permission denied.', 'danger')
+        
+    conn.close()
+    return redirect(url_for('dashboard'))
+
+# ==========================================
+# 2. DELETE FOUND ITEM (Fixed Session Check)
+# ==========================================
+@app.route('/delete_found_item/<int:item_id>', methods=['GET', 'POST'])
+def delete_found_item(item_id):
+    # FIX 1: Check for 'user' (email)
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    
+    # FIX 2: Check ownership using 'finder_email'
+    cursor.execute("SELECT * FROM found_items WHERE id = %s", (item_id,))
+    item = cursor.fetchone()
+    
+    if item and item['finder_email'] == session['user']:
+        cursor.execute("DELETE FROM found_items WHERE id = %s", (item_id,))
+        conn.commit()
+        
+        if item['image_path']:
+            try:
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], item['image_path'])
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception:
+                pass
+        flash('Found item deleted successfully.', 'success')
+    else:
+        flash('Permission denied.', 'danger')
+        
+    conn.close()
+    return redirect(url_for('dashboard'))
+
+
+# ==========================================
+# 3. DELETE NEURAL TAG (FIXED)
+# ==========================================
+@app.route('/delete_tag/<int:tag_id>', methods=['POST'])
+def delete_tag(tag_id):
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+
+    # 1. Get Current User ID (Required because table uses user_id, not email)
+    cursor.execute("SELECT id FROM users WHERE email = %s", (session['user'],))
+    current_user = cursor.fetchone()
+
+    if not current_user:
+        conn.close()
+        return redirect(url_for('login'))
+
+    # 2. Verify Ownership & Get File Path
+    # TABLE NAME IS 'neural_tags', NOT 'tags'
+    cursor.execute("SELECT * FROM neural_tags WHERE id = %s", (tag_id,))
+    tag = cursor.fetchone()
+
+    # Check if tag exists and belongs to the current user
+    if tag and tag['user_id'] == current_user['id']:
+        cursor.execute("DELETE FROM neural_tags WHERE id = %s", (tag_id,))
+        conn.commit()
+        
+        # 3. Optional: Delete the QR Code Image File
+        if tag['qr_image_path']:
+            try:
+                # Path is stored like "qrcodes/tag_xyz.png", so we join with 'static'
+                file_path = os.path.join('static', tag['qr_image_path'])
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception as e:
+                print(f"Error deleting QR file: {e}")
+
+        flash('Neural Tag deleted successfully.', 'success')
+    else:
+        flash('Permission denied or tag not found.', 'danger')
+
+    conn.close()
+    return redirect(url_for('dashboard'))
+
+
+# ==========================================
+# 4. EDIT NEURAL TAG (FIXED)
+# ==========================================
+@app.route('/edit_tag/<int:tag_id>', methods=['POST'])
+def edit_tag(tag_id):
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    # Get the new name from the form
+    new_name = request.form.get('tag_name')
+    
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+
+    # 1. Get Current User ID
+    cursor.execute("SELECT id FROM users WHERE email = %s", (session['user'],))
+    current_user = cursor.fetchone()
+
+    # 2. Verify Ownership
+    # TABLE NAME IS 'neural_tags'
+    cursor.execute("SELECT * FROM neural_tags WHERE id = %s", (tag_id,))
+    tag = cursor.fetchone()
+
+    if tag and tag['user_id'] == current_user['id']:
+        # COLUMN NAME IS 'item_name', NOT 'name'
+        cursor.execute("UPDATE neural_tags SET item_name = %s WHERE id = %s", (new_name, tag_id))
+        conn.commit()
+        flash('Tag updated successfully.', 'success')
+    else:
+        flash('Permission denied.', 'danger')
+
+    conn.close()
+    return redirect(url_for('dashboard'))
+
+# ==========================================
+# 5. EDIT LOST ITEM ROUTE (Correct Column: location_lost)
+# ==========================================
+@app.route('/edit_lost_item/<int:item_id>', methods=['GET', 'POST'])
+def edit_lost_item(item_id):
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("SELECT * FROM lost_items WHERE id = %s", (item_id,))
+    item = cursor.fetchone()
+
+    if not item or item['user_email'] != session['user']:
+        flash('Permission denied.', 'danger')
+        conn.close()
+        return redirect(url_for('dashboard'))
+
+    if item['status'] == 'verified' or item['status'] == 'returned':
+        flash('Cannot edit verified or returned items.', 'warning')
+        conn.close()
+        return redirect(url_for('dashboard'))
+
+    if request.method == 'POST':
+        name = request.form.get('item_name')
+        date = request.form.get('date_lost')
+        location = request.form.get('location') # Input from HTML
+        category = request.form.get('category')
+        desc = request.form.get('description')
+        
+        image = request.files.get('image')
+        image_path = item['image_path']
+
+        if image and image.filename != '':
+            filename = secure_filename(f"lost_{secrets.token_hex(4)}_{image.filename}")
+            image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            image_path = filename
+
+        # FIX: Using 'location_lost' as requested
+        try:
+            cursor.execute("""
+                UPDATE lost_items 
+                SET item_name=%s, date_lost=%s, location_lost=%s, category=%s, description=%s, image_path=%s
+                WHERE id=%s
+            """, (name, date, location, category, desc, image_path, item_id))
+            conn.commit()
+            flash('Lost item report updated.', 'success')
+        except mysql.connector.Error as err:
+            flash(f"Database Error: {err}", "danger")
+        finally:
+            conn.close()
+        
+        return redirect(url_for('dashboard'))
+
+    # Pre-fill fix: Template expects 'location', DB has 'location_lost'
+    if item and 'location' not in item and 'location_lost' in item:
+        item['location'] = item['location_lost']
+
+    conn.close()
+    return render_template('report_lost.html', item=item, is_edit=True)
+
+# ==========================================
+# 6. EDIT FOUND ITEM ROUTE (Fixed KeyError)
+# ==========================================
+@app.route('/edit_found_item/<int:item_id>', methods=['GET', 'POST'])
+def edit_found_item(item_id):
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("SELECT * FROM found_items WHERE id = %s", (item_id,))
+    item = cursor.fetchone()
+
+    # 1. Security Check
+    if not item or item['finder_email'] != session['user']:
+        flash('Permission denied.', 'danger')
+        conn.close()
+        return redirect(url_for('dashboard'))
+
+    # 2. Status Check (FIXED: Uses .get() to prevent crash)
+    # This safely checks the status. If column is missing, it assumes 'None' (not approved)
+    admin_status = item.get('claim_admin_status') 
+    
+    if admin_status == 'approved':
+        flash('Cannot edit items that are already approved.', 'warning')
+        conn.close()
+        return redirect(url_for('dashboard'))
+
+    # 3. Handle Updates (POST)
+    if request.method == 'POST':
+        name = request.form.get('item_name')
+        date = request.form.get('date_found')
+        location = request.form.get('location')
+        category = request.form.get('category')
+        desc = request.form.get('description')
+        
+        image = request.files.get('image')
+        image_path = item['image_path']
+
+        if image and image.filename != '':
+            filename = secure_filename(f"found_{secrets.token_hex(4)}_{image.filename}")
+            image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            image_path = filename
+
+        # Using 'location' as verified in previous step
+        try:
+            cursor.execute("""
+                UPDATE found_items 
+                SET item_name=%s, date_found=%s, location=%s, category=%s, description=%s, image_path=%s
+                WHERE id=%s
+            """, (name, date, location, category, desc, image_path, item_id))
+            conn.commit()
+            flash('Found item report updated.', 'success')
+        except mysql.connector.Error as err:
+            flash(f"Database Error: {err}", "danger")
+        finally:
+            conn.close()
+        
+        return redirect(url_for('dashboard'))
+
+    conn.close()
+    return render_template('report_found.html', item=item, is_edit=True)
+
 @app.route('/alert_owner/<unique_code>', methods=['POST'])
 def alert_owner(unique_code):
     finder_contact = request.form.get('finder_contact')
@@ -790,7 +1341,7 @@ def alert_owner(unique_code):
     return redirect(url_for('index'))
       
 # ==========================================
-# FEATURE 2: KARMA LEADERBOARD
+#  KARMA LEADERBOARD
 # ==========================================
 
 @app.route('/leaderboard')
@@ -804,7 +1355,7 @@ def leaderboard():
     return render_template('leaderboard.html', leaders=leaders)
 
 # ==========================================
-# FEATURE 3: PUBLIC SOS LINK
+# PUBLIC SOS LINK
 # ==========================================
 @app.route('/view_lost/<int:item_id>')
 def view_lost(item_id):

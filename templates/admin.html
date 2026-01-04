@@ -72,6 +72,7 @@
         </div>
 
         <div id="tab-dashboard" class="tab-content block animate-in fade-in zoom-in-95 duration-300">
+
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
                 <div
                     class="glass-card p-8 rounded-[2.5rem] border border-white/60 shadow-xl bg-white flex flex-col justify-center gap-1">
@@ -103,13 +104,63 @@
                 </div>
             </div>
 
-            <div class="glass-card p-8 rounded-[2.5rem] border border-white/60 shadow-xl bg-white">
-                <h3 class="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
-                    <i data-lucide="bar-chart-2" class="w-5 h-5 text-[#00509E]"></i> Resolution Analytics (7 Days)
-                </h3>
-                <div class="h-80 w-full">
-                    <canvas id="solvedChart"></canvas>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                <div class="lg:col-span-2 glass-card p-8 rounded-[2.5rem] border border-white/60 shadow-xl bg-white">
+                    <h3 class="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
+                        <i data-lucide="bar-chart-2" class="w-5 h-5 text-[#00509E]"></i> Resolution Analytics (7 Days)
+                    </h3>
+                    <div class="h-80 w-full">
+                        <canvas id="solvedChart"></canvas>
+                    </div>
                 </div>
+
+                <div class="glass-card p-8 rounded-[2.5rem] border border-white/60 shadow-xl bg-white flex flex-col">
+                    <h3 class="text-lg font-black text-slate-800 mb-6 flex items-center justify-between">
+                        <span class="flex items-center gap-2">
+                            <i data-lucide="trophy" class="w-5 h-5 text-amber-500"></i> Karma Leaders
+                        </span>
+                        {% if leaderboard|length > 3 %}
+                        <button onclick="openLeaderboardModal()"
+                            class="text-[10px] font-black uppercase text-[#00509E] hover:text-[#78BE20] transition-colors">
+                            View More
+                        </button>
+                        {% endif %}
+                    </h3>
+
+                    <div class="flex-1 space-y-4">
+                        {% if leaderboard %}
+                        {# Only show the first 3 in the main card #}
+                        {% for user in leaderboard[:3] %}
+                        <div
+                            class="flex items-center justify-between p-3 rounded-2xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100 group">
+                            <div class="flex items-center gap-3">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center font-black text-xs
+                    {% if loop.index == 1 %} bg-amber-100 text-amber-600
+                    {% elif loop.index == 2 %} bg-slate-100 text-slate-600
+                    {% elif loop.index == 3 %} bg-orange-100 text-orange-600 {% endif %}">
+                                    #{{ loop.index }}
+                                </div>
+                                <div>
+                                    <p class="font-bold text-sm text-slate-700">{{ user.name }}</p>
+                                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">User</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <span class="block font-black text-[#00509E]">{{ user.reward_points }}</span>
+                                <span class="text-[9px] text-slate-400 font-bold uppercase">Points</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <div class="text-center py-10 opacity-50">
+                            <i data-lucide="users" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
+                            <p class="text-xs font-bold uppercase text-slate-400">No data available</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
             </div>
         </div>
 
@@ -148,7 +199,8 @@
                                 {% else %}
                                 <div
                                     class="w-20 h-20 bg-white rounded-xl flex items-center justify-center mx-auto border border-slate-200">
-                                    <i data-lucide="image-off" class="text-slate-300"></i></div>
+                                    <i data-lucide="image-off" class="text-slate-300"></i>
+                                </div>
                                 {% endif %}
                             </div>
                             <div class="h-16 w-px bg-slate-200"></div>
@@ -161,7 +213,8 @@
                                 {% else %}
                                 <div
                                     class="w-20 h-20 bg-indigo-50 rounded-xl flex items-center justify-center mx-auto border border-indigo-100">
-                                    <i data-lucide="file-question" class="text-indigo-300"></i></div>
+                                    <i data-lucide="file-question" class="text-indigo-300"></i>
+                                </div>
                                 {% endif %}
                             </div>
                         </div>
@@ -398,6 +451,42 @@
     </div>
 </div>
 
+<div id="leaderboardModal"
+    class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] hidden items-center justify-center p-4 opacity-0 transition-opacity duration-300">
+    <div class="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl flex flex-col max-h-[80vh] overflow-hidden transform scale-95 transition-transform duration-300"
+        id="leaderboardModalContent">
+        <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+            <h3 class="text-xl font-black text-slate-800 flex items-center gap-2">
+                <i data-lucide="award" class="text-amber-500"></i> Full Rankings
+            </h3>
+            <button onclick="closeLeaderboardModal()" class="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <i data-lucide="x" class="w-6 h-6 text-slate-400"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-6 space-y-3">
+            {% for user in leaderboard %}
+            <div
+                class="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:border-[#00509E]/20 transition-colors">
+                <div class="flex items-center gap-4">
+                    <span
+                        class="text-xs font-black {% if loop.index <= 3 %}text-[#78BE20]{% else %}text-slate-400{% endif %} w-6">#{{
+                        loop.index }}</span>
+                    <div>
+                        <p class="font-bold text-slate-800">{{ user.name }}</p>
+                        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{{ user.email }}</p>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <span class="font-black text-[#00509E]">{{ user.reward_points }}</span>
+                    <p class="text-[9px] text-slate-400 font-bold uppercase">Points</p>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
 <script>
     // --- 1. TAB SWITCHING LOGIC ---
     function switchTab(tabName) {
@@ -487,5 +576,61 @@
         modal.classList.add('opacity-0'); modalContent.classList.add('scale-95');
         setTimeout(() => { modal.classList.add('hidden'); }, 300);
     }
+
+    // --- 4. KARMA LEADER TOGGLE ---
+    function toggleKarmaLeaders() {
+        const hiddenItems = document.querySelectorAll('.karma-user-row');
+        const btn = document.getElementById('karma-toggle-btn');
+        let isExpanding = btn.innerText === 'VIEW MORE';
+
+        hiddenItems.forEach((item, index) => {
+            if (index >= 3) { // Skip the top 3
+                if (isExpanding) {
+                    item.classList.remove('hidden');
+                    item.classList.add('animate-in', 'fade-in', 'slide-in-from-top-1', 'duration-300');
+                } else {
+                    item.classList.add('hidden');
+                }
+            }
+        });
+
+        btn.innerText = isExpanding ? 'VIEW LESS' : 'VIEW MORE';
+    }
+
+    // --- LEADERBOARD MODAL LOGIC ---
+    function openLeaderboardModal() {
+        const modal = document.getElementById('leaderboardModal');
+        const content = document.getElementById('leaderboardModalContent');
+
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+
+        // Trigger animations
+        setTimeout(() => {
+            modal.classList.remove('opacity-0');
+            content.classList.remove('scale-95');
+        }, 10);
+    }
+
+    function closeLeaderboardModal() {
+        const modal = document.getElementById('leaderboardModal');
+        const content = document.getElementById('leaderboardModalContent');
+
+        modal.classList.add('opacity-0');
+        content.classList.add('scale-95');
+
+        setTimeout(() => {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }, 300);
+    }
+
+    // Close modal when clicking on the dark background
+    window.addEventListener('click', function (event) {
+        const modal = document.getElementById('leaderboardModal');
+        if (event.target == modal) {
+            closeLeaderboardModal();
+        }
+    });
 </script>
 {% endblock %}

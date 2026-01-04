@@ -46,18 +46,16 @@
 
         <div class="flex gap-2">
             <button onclick="location.reload()"
-                class="p-3 bg-white hover:bg-slate-50 rounded-xl text-slate-500 hover:text-[#00509E] transition-all shadow-sm">
+                class="p-3 bg-white hover:bg-slate-50 rounded-xl text-slate-500 hover:text-[#00509E] transition-all shadow-sm"
+                title="Refresh Chat">
                 <i data-lucide="refresh-cw" class="w-5 h-5"></i>
             </button>
 
             {% if item.status != 'returned' %}
-            <form action="{{ url_for('mark_returned', claim_id=claim.id) }}" method="POST"
-                onsubmit="return confirm('Confirm item exchange? This will close the claim.')">
-                <button type="submit"
-                    class="px-4 py-3 bg-[#78BE20] hover:bg-[#66a31b] text-white rounded-xl font-bold text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-[#78BE20]/20 transition-all">
-                    <i data-lucide="check-circle" class="w-4 h-4"></i> Complete Exchange
-                </button>
-            </form>
+            <button onclick="openCompleteModal()"
+                class="px-4 py-3 bg-[#78BE20] hover:bg-[#66a31b] text-white rounded-xl font-bold text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-[#78BE20]/20 transition-all">
+                <i data-lucide="check-circle" class="w-4 h-4"></i> Complete Exchange
+            </button>
             {% else %}
             <div
                 class="px-4 py-3 bg-slate-100 text-slate-400 rounded-xl font-bold text-xs uppercase tracking-widest flex items-center gap-2 cursor-not-allowed opacity-75">
@@ -67,7 +65,7 @@
         </div>
     </div>
 
-    <div class="bg-slate-50/50 border-x border-white/60 p-6 h-[500px] overflow-y-auto flex flex-col gap-4 backdrop-blur-sm"
+    <div class="bg-slate-50/50 border-x border-white/60 p-6 h-[500px] overflow-y-auto flex flex-col gap-4 backdrop-blur-sm scroll-smooth"
         id="chatBox">
         <div class="text-center my-4">
             <span
@@ -123,9 +121,90 @@
     </div>
 </div>
 
+<div id="completeModal" class="fixed inset-0 z-[100] hidden" aria-labelledby="modal-title" role="dialog"
+    aria-modal="true">
+    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity opacity-0 animate-fadeIn"
+        onclick="closeCompleteModal()"></div>
+
+    <div class="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
+        <div
+            class="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl p-6 pointer-events-auto transform scale-95 opacity-0 animate-popIn flex flex-col items-center text-center">
+
+            <div
+                class="w-16 h-16 bg-green-100 text-green-600 rounded-2xl flex items-center justify-center mb-4 shadow-inner">
+                <i data-lucide="check-circle" class="w-8 h-8"></i>
+            </div>
+
+            <h3 class="text-xl font-black text-slate-800 mb-2">Item Returned?</h3>
+            <p class="text-slate-500 text-sm font-medium mb-6 leading-relaxed">
+                Confirming this will mark the item as returned and <b>close this chat</b> permanently. Are you sure?
+            </p>
+
+            <div class="flex gap-3 w-full">
+                <button onclick="closeCompleteModal()"
+                    class="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-colors">
+                    Cancel
+                </button>
+
+                <form action="{{ url_for('mark_returned', claim_id=claim.id) }}" method="POST" class="flex-1">
+                    <button type="submit"
+                        class="w-full py-3 bg-[#78BE20] hover:bg-[#66a31b] text-white rounded-xl font-bold text-sm shadow-lg shadow-[#78BE20]/20 transition-all">
+                        Yes, Confirm
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    @keyframes popIn {
+        from {
+            transform: scale(0.95);
+            opacity: 0;
+        }
+
+        to {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
+
+    .animate-fadeIn {
+        animation: fadeIn 0.2s ease-out forwards;
+    }
+
+    .animate-popIn {
+        animation: popIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+</style>
+
 <script>
-    // Auto-scroll to bottom
+    // 1. Auto-scroll to bottom of chat
     const chatBox = document.getElementById('chatBox');
     chatBox.scrollTop = chatBox.scrollHeight;
+
+    // 2. Modal Functions
+    function openCompleteModal() {
+        const modal = document.getElementById('completeModal');
+        modal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden'; // Stop background scrolling
+    }
+
+    function closeCompleteModal() {
+        const modal = document.getElementById('completeModal');
+        modal.classList.add('hidden');
+        document.body.style.overflow = 'auto'; // Restore scrolling
+    }
 </script>
 {% endblock %}
