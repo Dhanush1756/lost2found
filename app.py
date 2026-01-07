@@ -40,10 +40,11 @@ if not os.path.exists(UPLOAD_FOLDER):
 # --- DATABASE CONNECTION ---
 def get_db():
     return mysql.connector.connect(
-        host="localhost", 
-        user="root", 
-        password="root", 
-        database="lost2found_db"
+        host=os.getenv('MYSQLHOST'),
+        user=os.getenv('MYSQLUSER'),
+        password=os.getenv('MYSQLPASSWORD'),
+        database=os.getenv('MYSQLDATABASE'),
+        port=int(os.getenv('MYSQLPORT', 3306)) # Default to 3306 if not found
     )
 
 def allowed_file(filename):
