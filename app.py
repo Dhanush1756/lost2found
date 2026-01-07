@@ -191,7 +191,7 @@ def index():
 def browse():
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM found_items WHERE status = 'available' ORDER BY date_found DESC")
+    cursor.execute("SELECT * FROM found_items WHERE status IN ('available', 'searching', 'potential_match') ORDER BY date_found DESC")
     items = cursor.fetchall()
     conn.close()
     return render_template('registry.html', items=items)
@@ -455,7 +455,8 @@ def report_found():
         conn.close()
         return redirect(url_for('dashboard'))
         
-    return render_template('report_found.html')            
+    return render_template('report_found.html')
+                
 @app.route('/claim/<int:fid>/<int:lid>', methods=['POST'])
 @is_logged_in
 def claim(fid, lid):

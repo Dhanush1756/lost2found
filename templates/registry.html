@@ -32,14 +32,15 @@
             </div>
 
             <div class="px-2">
-                <h3 class="text-2xl font-black text-slate-800 mb-1 group-hover:text-[#00509E] transition-colors">{{
-                    item.item_name }}</h3>
+                <h3 class="text-2xl font-black text-slate-800 mb-1 group-hover:text-[#00509E] transition-colors">
+                    {{ item.item_name }}
+                </h3>
                 <div class="flex items-center gap-2 text-slate-400 text-sm font-bold mb-8">
-                    <i data-lucide="map-pin" class="w-4 h-4 text-[#78BE20]"></i> {{ item.location_found }}
+                    <i data-lucide="map-pin" class="w-4 h-4 text-[#78BE20]"></i> {{ item.location }}
                 </div>
 
                 <button
-                    onclick="openModal('{{ item.item_name }}', '{{ item.location_found }}', '{{ item.date_found }}', '{{ url_for('uploaded_file', filename=item.image_path) if item.image_path else '' }}')"
+                    onclick="openModal('{{ item.item_name }}', '{{ item.location }}', '{{ item.date_found }}', '{{ url_for('uploaded_file', filename=item.image_path) if item.image_path else '' }}')"
                     class="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-sm hover:bg-[#00509E] transition-all shadow-xl flex items-center justify-center gap-2 group/btn">
                     Inspect Asset
                     <i data-lucide="scan-eye" class="w-4 h-4 group-hover/btn:rotate-12 transition"></i>
@@ -126,12 +127,12 @@
         }
 
         document.getElementById('itemModal').classList.remove('hidden');
-        document.body.style.overflow = 'hidden'; // Stop scrolling
+        document.body.style.overflow = 'hidden';
     }
 
     function closeModal() {
         document.getElementById('itemModal').classList.add('hidden');
-        document.body.style.overflow = 'auto'; // Enable scrolling
+        document.body.style.overflow = 'auto';
     }
 </script>
 {% endblock %}
