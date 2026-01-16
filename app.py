@@ -15,6 +15,9 @@ from flask_mail import Mail, Message
 import qrcode
 import uuid
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 
 app = Flask(__name__)
 app.secret_key = "lost2found_secret_key"

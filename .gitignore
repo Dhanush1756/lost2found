@@ -5,5 +5,3 @@ __pycache__/
 instance/
 static/uploads/*
 static/lost2found.db
-static/logo.jpg
-static/whatsapp.jpg
